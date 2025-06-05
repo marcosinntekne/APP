@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>App de Reportes con Login</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  label { display: block; margin-top: 10px; }
+  textarea { width: 100%; height: 60px; }
+  input, select, button { margin-top: 5px; }
+  .report { border: 1px solid #ccc; padding: 10px; margin-top: 10px; }
+  .hidden { display: none; }
+</style>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+
+<h2>App de Reportes con Login</h2>
+
+<div id="loginForm">
+  <label>Usuario: <input type="text" id="loginUser" /></label>
+  <label>Contraseña: <input type="password" id="loginPass" /></label>
+  <button onclick="login()">Iniciar Sesión</button>
+</div>
+
+<div id="mainApp" class="hidden">
+  <p>Bienvenido <span id="userName"></span> (<span id="userRole"></span>) <button onclick="logout()">Cerrar sesión</button></p>
+
+  <div id="userManager" class="hidden">
+    <h3>Gestión de usuarios</h3>
+    <label>Nuevo Usuario: <input type="text" id="newUser" /></label>
+    <label>Contraseña: <input type="password" id="newPass" /></label>
+    <label>Rol:
+      <select id="newRole">
+        <option value="operario">Operario</option>
+        <option value="jefe">Jefe de mantenimiento</option>
+      </select>
+    </label>
+    <button onclick="addUser()">Agregar Usuario</button>
+  </div>
+
+  <div id="formulario">
+    <label>Nombre de la máquina: <input type="text" id="machine" /></label>
+    <label>Tarea a realizar: <textarea id="task"></textarea></label>
+    <label>Comentarios: <textarea id="comments"></textarea></label>
+    <label>Foto: <input type="file" id="photo" accept="image/*" /></label>
+    <button id="submitBtn">Cargar Reporte</button>
+  </div>
+
+  <h3>Reportes cargados:</h3>
+  <div id="reports"></div>
+</div>
+
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyDnbKGnR0gkd5TexFWx_jiPFg6fDZRh6Cg",
+    authDomain: "pruebamantenimiento-65b4e.firebaseapp.com",
+    projectId: "pruebamantenimiento-65b4e",
+    storageBucket: "pruebamantenimiento-65b4e.appspot.com",
+    messagingSenderId: "18841963943",
+    appId: "1:18841963943:web:e4ce31f8aa248c65e93a82"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+
+  let currentUser = null;
+
+  const loginForm = document.getElementById('loginForm');
+  const mainApp = document.getElementById('mainApp');
+  const userNameSpan = document.getElementById('userName');
+  const userRoleSpan = document.getElementById('userRole');
+  const userManager = document.getElementById('userManager');
+  const photoInput = document.getElementById('photo');
+  const reportsDiv = document.getElementById('reports');
+
+  async function login() {
+    const user = document.getElementById('loginUser').value.trim();
+    const pass = document.getElementById('loginPass').value.trim();
+
+    if (!user || !pass) return alert('Complete usuario y contraseña.');
+
+    if (user === 'INNTEKNE' && pass === '1234') {
+      currentUser = { name: 'INNTEKNE', role: 'fabricante' };
+      showApp();
+      return;
+    }
+
+    try {
+      const snapshot = await db.collection('usuarios').where('name', '==', user).where('password', '==', pass).get();
+      if (!snapshot.empty) {
+        const doc = snapshot.docs[0];
+        currentUser = doc.data();
+        showApp();
+      } else {
+        alert('Usuario o contraseña incorrectos.');
+      }
+    } catch (e) {
+      alert('Error al iniciar sesión: ' + e.message);
+    }
+  }
+
+  function logout() {
+    currentUser = null;
+    loginForm.classList.remove('hidden');
+    mainApp.classList.add('hidden');
+  }
+
+  function showApp() {
+    loginForm.classList.add('hidden');
+    mainApp.classList.remove('hidden');
+    userNameSpan.textContent = currentUser.name;
+    userRoleSpan.textContent = currentUser.role;
+    if (currentUser.role === 'fabricante') userManager.classList.remove('hidden');
+    else userManager.classList.add('hidden');
+    loadReports();
+  }
+
+  async function addUser() {
+    const name = document.getElementById('newUser').value.trim();
+    const password = document.getElementById('newPass').value.trim();
+    const role = document.getElementById('newRole').value;
+    if (!name || !password) return alert('Complete todos los campos');
+    try {
+      await db.collection('usuarios').add({ name, password, role });
+      alert('Usuario agregado');
+    } catch (e) {
+      alert('Error agregando usuario: ' + e.message);
+    }
+  }
+
+  async function loadReports() {
+    reportsDiv.innerHTML = '<em>Cargando reportes...</em>';
+    try {
+      const snapshot = await db.collection('reportes').orderBy('timestamp', 'desc').limit(20).get();
+      reportsDiv.innerHTML = '';
+      snapshot.forEach(doc => {
+        const report = doc.data();
+        const div = document.createElement('div');
+        div.classList.add('report');
+        const timestamp = report.timestamp?.toDate();
+        const fechaHora = timestamp ? timestamp.toLocaleString() : 'Fecha no disponible';
+
+        div.innerHTML = `
+          <strong>Máquina:</strong> ${report.machine}<br>
+          <strong>Tarea:</strong> ${report.task}<br>
+          <strong>Comentarios:</strong> ${report.comments}<br>
+          ${report.photo ? `<img src="${report.photo}" style="max-width:200px"/><br>` : ''}
+          <em>Por: ${report.user} (${report.role})</em><br>
+          <em>Fecha y hora: ${fechaHora}</em>
+        `;
+
+        if (currentUser.role === 'jefe') {
+          const deleteBtn = document.createElement('button');
+          deleteBtn.textContent = 'Eliminar';
+          deleteBtn.onclick = async () => {
+            if (confirm('¿Seguro que desea eliminar este reporte?')) {
+              await db.collection('reportes').doc(doc.id).delete();
+              loadReports();
+            }
+          };
+          div.appendChild(deleteBtn);
+        }
+
+        reportsDiv.appendChild(div);
+      });
+    } catch (e) {
+      reportsDiv.innerHTML = `<em>Error: ${e.message}</em>`;
+    }
+  }
+
+  document.getElementById('submitBtn').onclick = async () => {
+    const machine = document.getElementById('machine').value.trim();
+    const task = document.getElementById('task').value.trim();
+    const comments = document.getElementById('comments').value.trim();
+    let photoData = null;
+
+    if (!machine || !task) return alert('Complete los campos obligatorios');
+
+    if (photoInput.files.length > 0) {
+      photoData = await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result);
+        reader.readAsDataURL(photoInput.files[0]);
+      });
+    }
+
+    try {
+      await db.collection('reportes').add({
+        machine,
+        task,
+        comments,
+        photo: photoData,
+        role: currentUser.role,
+        user: currentUser.name,
+        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      alert('Reporte guardado');
+      document.getElementById('machine').value = '';
+      document.getElementById('task').value = '';
+      document.getElementById('comments').value = '';
+      photoInput.value = '';
+      loadReports();
+    } catch (e) {
+      alert('Error al guardar: ' + e.message);
+    }
+  };
+</script>
+</body>
+</html>
